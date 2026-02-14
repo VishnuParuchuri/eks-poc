@@ -1,0 +1,137 @@
+name: Terraform DevSecOps EKS Pipeline
+
+on:
+  workflow_dispatch:   # Manual trigger only
+
+permissions:
+  id-token: write      # Required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-west-1
+  TF_WORKING_DIR: terraform
+
+jobs:
+
+  validate-and-plan:
+    name: Terraform Validate, Scan & Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # OIDC Authentication
+      # -------------------------
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -------------------------
+      # Setup Terraform
+      # -------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # -------------------------
+      # Terraform Format Check
+      # -------------------------
+      - name: Terraform Format
+        run: terraform fmt -check
+
+      # -------------------------
+      # Terraform Init
+      # -------------------------
+      - name: Terraform Init
+        run: terraform init
+
+      # -------------------------
+      # Terraform Validate
+      # -------------------------
+      - name: Terraform Validate
+        run: terraform validate
+
+      # -------------------------
+      # tfsec Scan
+      # -------------------------
+      - name: tfsec Scan
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: terraform
+
+      # -------------------------
+      # Checkov Scan
+      # -------------------------
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform
+
+      # -------------------------
+      # Trivy Scan (Filesystem + IaC)
+      # -------------------------
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+
+      # -------------------------
+      # Terraform Plan
+      # -------------------------
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
+
+  apply:
+    name: Terraform Apply (Manual Approval Required)
+    needs: validate-and-plan
+    runs-on: ubuntu-latest
+    environment: production   # Enables approval gate
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # -------------------------
+      # OIDC Authentication
+      # -------------------------
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Show ELB DNS Output
+        run: terraform output nginx_external_dns
