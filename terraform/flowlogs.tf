@@ -1,9 +1,19 @@
 # ----------------------------------------
+# KMS Key for CloudWatch Logs
+# ----------------------------------------
+resource "aws_kms_key" "cloudwatch_logs" {
+  description             = "KMS key for CloudWatch VPC Flow Logs"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+}
+
+# ----------------------------------------
 # CloudWatch Log Group for VPC Flow Logs
 # ----------------------------------------
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/aws/vpc/flow-logs"
   retention_in_days = 7
+  kms_key_id        = aws_kms_key.cloudwatch_logs.arn
 }
 
 # ----------------------------------------
