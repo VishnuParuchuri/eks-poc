@@ -53,6 +53,7 @@ resource "aws_security_group_rule" "cluster_to_node" {
 # ----------------------------------------
 # Node Outbound Internet Access (Required for Image Pulls)
 # ----------------------------------------
+# tfsec:ignore:aws-ec2-no-public-egress-sgr
 resource "aws_security_group_rule" "node_egress" {
   description       = "Allow outbound internet access for nodes"
   type              = "egress"

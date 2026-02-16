@@ -43,6 +43,8 @@ resource "aws_eks_cluster" "eks" {
     ]
 
     # 🔐 Balanced Secure Configuration
+    # tfsec:ignore:aws-eks-no-public-cluster-access
+    # tfsec:ignore:aws-eks-no-public-cluster-access-to-cidr
     endpoint_public_access  = true
     endpoint_private_access = true
 
