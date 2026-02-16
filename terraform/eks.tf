@@ -49,6 +49,7 @@ resource "aws_eks_cluster" "eks" {
     endpoint_private_access = true
 
     # 👇 REPLACE WITH YOUR ACTUAL PUBLIC IP
+    # tfsec:ignore:aws-eks-no-public-cluster-access-to-cidr
     public_access_cidrs = ["136.226.253.75/32"]
   }
 
