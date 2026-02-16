@@ -3,7 +3,7 @@
 # ----------------------------------------
 resource "aws_security_group" "eks_cluster_sg" {
   name        = "eks-cluster-sg"
-  description = "Security group for EKS cluster"
+  description = "Security group for EKS control plane"
   vpc_id      = aws_vpc.main.id
 
   tags = {
@@ -24,7 +24,11 @@ resource "aws_security_group" "eks_node_sg" {
   }
 }
 
+# ----------------------------------------
+# Allow Worker Nodes to Communicate
+# ----------------------------------------
 resource "aws_security_group_rule" "node_to_node" {
+  description              = "Allow worker nodes to communicate with each other"
   type                     = "ingress"
   from_port                = 0
   to_port                  = 65535
@@ -33,7 +37,11 @@ resource "aws_security_group_rule" "node_to_node" {
   source_security_group_id = aws_security_group.eks_node_sg.id
 }
 
+# ----------------------------------------
+# Allow Cluster Control Plane to Talk to Nodes
+# ----------------------------------------
 resource "aws_security_group_rule" "cluster_to_node" {
+  description              = "Allow EKS control plane to communicate with worker nodes"
   type                     = "ingress"
   from_port                = 1025
   to_port                  = 65535
@@ -42,16 +50,11 @@ resource "aws_security_group_rule" "cluster_to_node" {
   source_security_group_id = aws_security_group.eks_cluster_sg.id
 }
 
-resource "aws_security_group_rule" "allow_http" {
-  type              = "ingress"
-  from_port         = 80
-  to_port           = 80
-  protocol          = "tcp"
-  security_group_id = aws_security_group.eks_node_sg.id
-  cidr_blocks       = ["0.0.0.0/0"]
-}
-
+# ----------------------------------------
+# Node Outbound Internet Access (Required for Image Pulls)
+# ----------------------------------------
 resource "aws_security_group_rule" "node_egress" {
+  description       = "Allow outbound internet access for nodes"
   type              = "egress"
   from_port         = 0
   to_port           = 0
