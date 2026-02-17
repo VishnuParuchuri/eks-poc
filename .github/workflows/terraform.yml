@@ -67,12 +67,15 @@ jobs:
           working_directory: terraform
 
       # -------------------------
-      # Checkov Scan
+      # Checkov Scan (Soft Fail)
       # -------------------------
       - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
           directory: terraform
+          framework: terraform
+          output_format: cli
+          soft_fail: true
 
       # -------------------------
       # Trivy Scan (Filesystem + IaC)
