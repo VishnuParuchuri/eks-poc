@@ -1,10 +1,10 @@
 name: Terraform DevSecOps EKS Pipeline
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # Manual trigger only
 
 permissions:
-  id-token: write
+  id-token: write      # Required for OIDC
   contents: read
 
 env:
@@ -13,194 +13,128 @@ env:
 
 jobs:
 
-################################
-# 1️⃣ Terraform Format
-################################
-
-  terraform-fmt:
+  validate-and-plan:
+    name: Terraform Validate, Scan & Plan
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -diff > fmt-report.txt || true
-
-      - name: Upload FMT Report
-        uses: actions/upload-artifact@v4
+      # -------------------------
+      # OIDC Authentication
+      # -------------------------
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: terraform-fmt-report
-          path: terraform/fmt-report.txt
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-################################
-# 2️⃣ Terraform Validate
-################################
+      # -------------------------
+      # Setup Terraform
+      # -------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-  terraform-validate:
-    needs: terraform-fmt
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      # -------------------------
+      # Terraform Format Check
+      # -------------------------
+      - name: Terraform Format
+        run: terraform fmt -check
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-      - run: terraform validate > validate-report.txt
+      # -------------------------
+      # Terraform Init
+      # -------------------------
+      - name: Terraform Init
+        run: terraform init
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terraform-validate-report
-          path: terraform/validate-report.txt
+      # -------------------------
+      # Terraform Validate
+      # -------------------------
+      - name: Terraform Validate
+        run: terraform validate
 
-################################
-# 3️⃣ tfsec
-################################
-
-  tfsec:
-    needs: terraform-validate
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run tfsec
+      # -------------------------
+      # tfsec Scan
+      # -------------------------
+      - name: tfsec Scan
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform
-          additional_args: --format json --out tfsec-report.json
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tfsec-report
-          path: terraform/tfsec-report.json
-
-################################
-# 4️⃣ Checkov
-################################
-
-  checkov:
-    needs: tfsec
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Checkov
+      # -------------------------
+      # Checkov Scan (Soft Fail)
+      # -------------------------
+      - name: Checkov Scan
         uses: bridgecrewio/checkov-action@master
         with:
           directory: terraform
           framework: terraform
-          output_format: json
-          output_file_path: checkov-report.json
+          output_format: cli
           soft_fail: true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: checkov-report
-          path: checkov-report.json
-
-################################
-# 5️⃣ Trivy
-################################
-
-  trivy:
-    needs: checkov
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Trivy Scan
+      # -------------------------
+      # Trivy Scan (Filesystem + IaC)
+      # -------------------------
+      - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
-          format: json
-          output: trivy-report.json
 
-      - uses: actions/upload-artifact@v4
+      # -------------------------
+      # Terraform Plan
+      # -------------------------
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: trivy-report
-          path: trivy-report.json
-
-################################
-# 6️⃣ Terraform Plan
-################################
-
-  terraform-plan:
-    needs: trivy
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-      - run: terraform plan -out=tfplan > plan-output.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan-binary
+          name: terraform-plan
           path: terraform/tfplan
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan-report
-          path: terraform/plan-output.txt
-
-################################
-# 7️⃣ Terraform Apply (Manual Approval)
-################################
-
-  terraform-apply:
-    needs: terraform-plan
+  apply:
+    name: Terraform Apply (Manual Approval Required)
+    needs: validate-and-plan
     runs-on: ubuntu-latest
-    environment: production
+    environment: production   # Enables approval gate
+
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
+      # -------------------------
+      # OIDC Authentication
+      # -------------------------
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - uses: actions/download-artifact@v4
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
         with:
-          name: terraform-plan-binary
+          name: terraform-plan
           path: terraform
 
-      - run: terraform apply -auto-approve tfplan
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
 
-      - name: Capture Terraform Output
-        run: terraform output -json > output.json
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: terraform-output
-          path: terraform/output.json
-
-      - name: Show ELB DNS
+      - name: Show ELB DNS Output
         run: terraform output nginx_external_dns
