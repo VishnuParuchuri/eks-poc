@@ -1,0 +1,66 @@
+name: Terraform Destroy EKS Infrastructure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-1
+  TF_WORKING_DIR: terraform
+
+jobs:
+
+  terraform-destroy:
+
+    name: Destroy Infrastructure (Manual Approval Required)
+    runs-on: ubuntu-latest
+    environment: production   # Same environment for approval gate
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      ##################################
+      # OIDC Authentication
+      ##################################
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      ##################################
+      # Setup Terraform
+      ##################################
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      ##################################
+      # Terraform Destroy
+      ##################################
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve > destroy-log.txt
+
+      ##################################
+      # Upload Destroy Logs
+      ##################################
+
+      - name: Upload Destroy Logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-destroy-log
+          path: terraform/destroy-log.txt
