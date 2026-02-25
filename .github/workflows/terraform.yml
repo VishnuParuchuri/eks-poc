@@ -30,7 +30,7 @@ jobs:
 # ==========================================
 # 2️⃣ Terraform Init
 # ==========================================
-  terraform-init:
+    terraform-init:
     needs: terraform-fmt
     runs-on: ubuntu-latest
     defaults:
@@ -50,6 +50,12 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Upload Terraform Init Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-init-artifacts
+          path: terraform/.terraform
+
 # ==========================================
 # 3️⃣ Terraform Validate
 # ==========================================
@@ -61,8 +67,17 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download Terraform Init Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-init-artifacts
+          path: terraform/.terraform
+
       - uses: hashicorp/setup-terraform@v3
-      - run: terraform validate
+
+      - name: Terraform Validate
+        run: terraform validate
 
 # ==========================================
 # 4️⃣ tfsec Scan
