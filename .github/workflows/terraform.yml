@@ -13,16 +13,12 @@ env:
 
 jobs:
 
-# ======================================================
-# 1️⃣ Terraform Format
-# ======================================================
   terraform-fmt:
     name: Terraform Format
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,9 +29,7 @@ jobs:
       - name: Terraform Format Check
         run: terraform fmt -check
 
-# ======================================================
-# 2️⃣ Terraform Init
-# ======================================================
+
   terraform-init:
     name: Terraform Init
     needs: terraform-fmt
@@ -43,7 +37,6 @@ jobs:
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,15 +53,7 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      - name: Upload Terraform Init Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-init-artifacts
-          path: terraform/.terraform
 
-# ======================================================
-# 3️⃣ Terraform Validate
-# ======================================================
   terraform-validate:
     name: Terraform Validate
     needs: terraform-init
@@ -76,49 +61,47 @@ jobs:
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download Init Artifacts
-        uses: actions/download-artifact@v4
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: terraform-init-artifacts
-          path: terraform/.terraform
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Terraform Init
+        run: terraform init
+
       - name: Terraform Validate
         run: terraform validate
 
-# ======================================================
-# 4️⃣ tfsec Scan
-# ======================================================
+
   tfsec-scan:
     name: tfsec Security Scan
     needs: terraform-validate
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Run tfsec
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform
 
-# ======================================================
-# 5️⃣ Checkov Scan (Soft Fail)
-# ======================================================
+
   checkov-scan:
     name: Checkov Scan
     needs: tfsec-scan
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Run Checkov
         uses: bridgecrewio/checkov-action@master
@@ -128,16 +111,14 @@ jobs:
           output_format: cli
           soft_fail: true
 
-# ======================================================
-# 6️⃣ Trivy Scan
-# ======================================================
+
   trivy-scan:
     name: Trivy Scan
     needs: checkov-scan
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Run Trivy
         uses: aquasecurity/trivy-action@master
@@ -145,9 +126,7 @@ jobs:
           scan-type: fs
           scan-ref: .
 
-# ======================================================
-# 7️⃣ Terraform Plan
-# ======================================================
+
   terraform-plan:
     name: Terraform Plan
     needs: trivy-scan
@@ -155,7 +134,6 @@ jobs:
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -181,9 +159,7 @@ jobs:
           name: terraform-plan
           path: terraform/tfplan
 
-# ======================================================
-# 8️⃣ Terraform Apply (Manual Approval Required)
-# ======================================================
+
   terraform-apply:
     name: Terraform Apply
     needs: terraform-plan
@@ -192,7 +168,6 @@ jobs:
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -228,7 +203,7 @@ jobs:
       - name: Add ELB to Job Summary
         run: |
           echo "## 🚀 Application ELB DNS" >> $GITHUB_STEP_SUMMARY
-          echo "\`$(terraform output -raw nginx_external_dns)\`" >> $GITHUB_STEP_SUMMARY
+          echo "$(terraform output -raw nginx_external_dns)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Open in browser: http://$(terraform output -raw nginx_external_dns)" >> $GITHUB_STEP_SUMMARY
 
