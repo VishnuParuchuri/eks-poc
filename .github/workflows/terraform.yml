@@ -13,31 +13,40 @@ env:
 
 jobs:
 
-# ==========================================
+# ======================================================
 # 1️⃣ Terraform Format
-# ==========================================
+# ======================================================
   terraform-fmt:
+    name: Terraform Format
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
       - name: Terraform Format Check
         run: terraform fmt -check
 
-# ==========================================
+# ======================================================
 # 2️⃣ Terraform Init
-# ==========================================
-    terraform-init:
+# ======================================================
+  terraform-init:
+    name: Terraform Init
     needs: terraform-fmt
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -45,7 +54,8 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
         run: terraform init
@@ -56,80 +66,99 @@ jobs:
           name: terraform-init-artifacts
           path: terraform/.terraform
 
-# ==========================================
+# ======================================================
 # 3️⃣ Terraform Validate
-# ==========================================
+# ======================================================
   terraform-validate:
+    name: Terraform Validate
     needs: terraform-init
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Download Terraform Init Artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Init Artifacts
         uses: actions/download-artifact@v4
         with:
           name: terraform-init-artifacts
           path: terraform/.terraform
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Validate
         run: terraform validate
 
-# ==========================================
+# ======================================================
 # 4️⃣ tfsec Scan
-# ==========================================
+# ======================================================
   tfsec-scan:
+    name: tfsec Security Scan
     needs: terraform-validate
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/tfsec-action@v1.0.3
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform
 
-# ==========================================
+# ======================================================
 # 5️⃣ Checkov Scan (Soft Fail)
-# ==========================================
+# ======================================================
   checkov-scan:
+    name: Checkov Scan
     needs: tfsec-scan
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: bridgecrewio/checkov-action@master
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
         with:
           directory: terraform
           framework: terraform
           output_format: cli
           soft_fail: true
 
-# ==========================================
+# ======================================================
 # 6️⃣ Trivy Scan
-# ==========================================
+# ======================================================
   trivy-scan:
+    name: Trivy Scan
     needs: checkov-scan
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@master
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
 
-# ==========================================
+# ======================================================
 # 7️⃣ Terraform Plan
-# ==========================================
+# ======================================================
   terraform-plan:
+    name: Terraform Plan
     needs: trivy-scan
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -137,10 +166,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - run: terraform init
-      - run: terraform plan -out=tfplan
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
 
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
@@ -148,18 +181,21 @@ jobs:
           name: terraform-plan
           path: terraform/tfplan
 
-# ==========================================
-# 8️⃣ Terraform Apply (Manual Approval)
-# ==========================================
+# ======================================================
+# 8️⃣ Terraform Apply (Manual Approval Required)
+# ======================================================
   terraform-apply:
+    name: Terraform Apply
     needs: terraform-plan
     runs-on: ubuntu-latest
     environment: production
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -167,9 +203,11 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - run: terraform init
+      - name: Terraform Init
+        run: terraform init
 
       - name: Download Plan
         uses: actions/download-artifact@v4
@@ -180,15 +218,13 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
 
-      # 🔥 PRINT ELB DNS IN LOGS
-      - name: Show ELB DNS in Logs
+      - name: Print ELB DNS in Logs
         run: |
           echo "=============================="
           echo "Application ELB DNS:"
           terraform output nginx_external_dns
           echo "=============================="
 
-      # 🔥 ADD TO GITHUB ACTIONS SUMMARY
       - name: Add ELB to Job Summary
         run: |
           echo "## 🚀 Application ELB DNS" >> $GITHUB_STEP_SUMMARY
@@ -196,8 +232,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Open in browser: http://$(terraform output -raw nginx_external_dns)" >> $GITHUB_STEP_SUMMARY
 
-      # 🔥 SAVE AS ARTIFACT
-      - name: Save ELB Output to File
+      - name: Save ELB Output
         run: terraform output -raw nginx_external_dns > elb.txt
 
       - name: Upload ELB Artifact
